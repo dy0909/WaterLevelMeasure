@@ -1,8 +1,10 @@
+// install Adafruit BusIO
 #include <Adafruit_GFX.h>
 #include <Adafruit_GrayOLED.h>
 #include <Adafruit_SPITFT_Macros.h>
 #include <Adafruit_SPITFT.h>
 #include <gfxfont.h>
+
 
 #include <Adafruit_SSD1306.h>
 #include <splash.h>
@@ -39,6 +41,7 @@ Adafruit_SSD1306 lcd(128, 64, &Wire, OLED_RESET);
 
 
 bool getBtnPress = false;
+bool dispCleared = false;
 int menuIndex = 0;
 int dataDiameter = 0;
 int dataOffset = 0;
@@ -46,7 +49,7 @@ MODE dispMode = mode_Measure;
 
 void setup()
 {
-    Serial.setTimeout(100);
+  Serial.setTimeout(100);
 	Serial.begin(9600);
 
     pinMode(TRIG, OUTPUT);
@@ -162,23 +165,45 @@ void GetBtn()
             }
             else if(getUp)
             {
-                menuIndex++;
-                if(menuIndex > 1) menuIndex = 1;
+                menuIndex--;
+                if(menuIndex < 0) menuIndex = 0;
+                
             }
             else if(getDown)
             {
-                menuIndex--;
-                if(menuIndex < 0) menuIndex = 0;
+                menuIndex++;
+                if(menuIndex > 1) menuIndex = 1;
             }
             break;
 
+            Serial.print("Index ");
+            Serial.println(menuIndex);
         default: break;
         }
+
+        while(true)
+      {
+        getUp = !digitalRead(btn_UP);
+        getDown = !digitalRead(btn_DOWN);
+        getOk = !digitalRead(btn_OK);
+        getBtnPress = getUp || getDown || getOk;
+
+        dispCleared = false;
+
+        if(!getBtnPress) break;
+
+        delay(10);
+      }
     }
 }
 
 void ShowDisplay()
 {
+  if(!dispCleared)
+  {
+    lcd.clear();
+    dispCleared = true;
+  }
     switch (dispMode)
     {
     case mode_Measure :
@@ -190,7 +215,6 @@ void ShowDisplay()
 
     case mode_Menu :
         #ifdef LIQUIDLCD
-        lcd.clear();
         lcd.setCursor(0,0);
         lcd.print("Measure Mode");
         lcd.setCursor(0,1);
@@ -199,6 +223,9 @@ void ShowDisplay()
 
         if(menuIndex == 0) lcd.setCursor(0,0);
         else lcd.setCursor(0,1);
+
+        Serial.print("Index ");
+            Serial.println(menuIndex);
         #else
         lcd.clearDisplay();
         lcd.setTextSize(1);
