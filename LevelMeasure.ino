@@ -12,7 +12,7 @@
 #include <LiquidCrystal_I2C.h>
 #include <EEPROM.h>
 
-#define LIQUIDLCD
+//#define LIQUIDLCD
 
 #define OLED_RESET 4
 
@@ -64,7 +64,7 @@ void setup()
     lcd.backlight();
     lcd.clear();
     #else
-    lcd.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+    lcd.begin(SSD1306_SWITCHCAPVCC, 0x3D);
     lcd.clearDisplay();
     #endif
 
@@ -201,8 +201,14 @@ void ShowDisplay()
 {
   if(!dispCleared)
   {
+    #ifdef LIQUIDLCD
     lcd.clear();
     dispCleared = true;
+    #else
+    lcd.clearDisplay();
+    lcd.setTextSize(1);
+    lcd.setTextColor(WHITE);
+    #endif
   }
     switch (dispMode)
     {
@@ -245,6 +251,7 @@ void UltrasonicRun()
     lcd.setCursor(14,0);
     lcd.print("mm");
     #else
+    lcd.setTextSize(1);
     #endif
 
     long duration, distance;
@@ -273,6 +280,7 @@ void UltrasonicRun()
     lcd.setCursor(0,0);
     lcd.print(showVlaue);
     #else
+    lcd.setCursor((lcd.width() - 6 * 8) / 2, 15);
     #endif
 
     delay(200);
