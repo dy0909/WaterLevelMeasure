@@ -13,21 +13,35 @@
 #include <EEPROM.h>
 
 //#define LIQUIDLCD
+#define VSERSION 0.04
 
 #define OLED_RESET 4
 
 #define TRIG A2 //초음파 송신
 #define ECHO A3 //초음파 수신
 
-#define btn_UP 2 // UP
-#define btn_OK 6 // OK
+#define btn_UP 5 // UP
+#define btn_OK 7 // OK
 #define btn_DOWN 3 // DOWN
+
+#define PI 3.14159265359
 
 enum MODE
 {
     mode_Measure = 0,
     mode_Setting,
+    mode_Setting_Calibration,
+    mode_Setting_Calibration_Start,
+    mode_Setting_Diameter,  //지름
+    mode_Setting_Target,
     mode_Menu
+};
+
+struct SettingData
+{
+    float dataDiameter = 800;   //mm
+    float tankHeight = 1500;    //mm
+    int target = 70;           //L
 };
 
 //Member
@@ -39,18 +53,17 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 Adafruit_SSD1306 lcd(128, 64, &Wire, OLED_RESET);
 #endif
 
-
+SettingData setData;
 bool getBtnPress = false;
 bool dispCleared = false;
 int menuIndex = 0;
-int dataDiameter = 0;
 int dataOffset = 0;
-MODE dispMode = mode_Measure;
+MODE dispMode = mode_Menu;
 
 void setup()
 {
-  Serial.setTimeout(100);
-	Serial.begin(9600);
+    Serial.setTimeout(100);
+	Serial.begin(115200);
 
     pinMode(TRIG, OUTPUT);
     pinMode(ECHO, INPUT);
@@ -70,9 +83,8 @@ void setup()
 
     //SetSettingData(0,0);
     delay(1000);
-    GetSettingData();
+    //GetSettingData();
     Serial.println("setup end");
-
 }
 
 void loop()
@@ -100,7 +112,7 @@ void GetSettingData()
 
     if(savedData == "" || savedData.indexOf(',') == -1)
     {
-        dataDiameter = 0;
+        setData.dataDiameter = 0;
         dataOffset = 0;
         Serial.println("0,0");
     }
@@ -108,7 +120,7 @@ void GetSettingData()
     {
         int splitNum = savedData.indexOf(',');
 
-        dataDiameter = savedData.substring(0,splitNum).toInt();
+        setData.dataDiameter = savedData.substring(0,splitNum).toInt();
         dataOffset = savedData.substring(splitNum + 1).toInt();
     }
 }
@@ -133,7 +145,7 @@ void GetBtn()
 
     if(!getBtnPress) return;
 
-    delay(200);
+    delay(100);
 
     getUp = !digitalRead(btn_UP);
     getDown = !digitalRead(btn_DOWN);
@@ -153,7 +165,60 @@ void GetBtn()
             }
             break;
 
+        // mode_Setting_Calibration,
+        // mode_Setting_Diameter,  //지름
+        // mode_Setting_Target,
         case mode_Setting :
+            if(getOk)
+            {
+                if(menuIndex == 0)
+                {
+                    dispMode = mode_Setting_Calibration;
+                    menuIndex = 0;
+                }
+                else if(menuIndex == 1) dispMode = mode_Setting_Diameter;
+                else dispMode = mode_Setting_Target;
+            }
+            else if(getUp)
+            {
+                menuIndex--;
+                if(menuIndex < 0) menuIndex = 0;
+                
+            }
+            else if(getDown)
+            {
+                menuIndex++;
+                if(menuIndex > 2) menuIndex = 2;
+            }
+            break;
+
+        case mode_Setting_Calibration :
+            if(getOk)
+            {
+                if(menuIndex == 0)
+                    dispMode = mode_Setting_Calibration_Start;
+                else
+                    dispMode = mode_Setting;
+
+                menuIndex = 0;
+            }
+            else if(getUp)
+            {
+                menuIndex--;
+                if(menuIndex < 0) menuIndex = 0;
+                
+            }
+            else if(getDown)
+            {
+                menuIndex++;
+                if(menuIndex > 1) menuIndex = 1;
+            }
+            break;
+
+        case mode_Setting_Diameter :
+            break;
+
+        case mode_Setting_Target :
             break;
 
         case mode_Menu :
@@ -199,17 +264,19 @@ void GetBtn()
 
 void ShowDisplay()
 {
-  if(!dispCleared)
-  {
-    #ifdef LIQUIDLCD
-    lcd.clear();
-    dispCleared = true;
-    #else
-    lcd.clearDisplay();
-    lcd.setTextSize(1);
-    lcd.setTextColor(WHITE);
-    #endif
-  }
+    if(!dispCleared)
+    {
+        #ifdef LIQUIDLCD
+        lcd.clear();
+        dispCleared = true;
+        #else
+        lcd.clearDisplay();
+        lcd.setTextSize(1);
+        lcd.setTextColor(WHITE);
+        //dispCleared = true;
+        #endif
+    }
+
     switch (dispMode)
     {
     case mode_Measure :
@@ -233,10 +300,30 @@ void ShowDisplay()
         Serial.print("Index ");
             Serial.println(menuIndex);
         #else
-        lcd.clearDisplay();
-        lcd.setTextSize(1);
-        lcd.setTextColor(WHITE);
-        lcd.setCursor(0,0);
+        lcd.setTextSize(2);
+        lcd.setCursor((lcd.width() - (12 * 4)) / 2, 0);
+        lcd.println("MENU");
+        lcd.drawLine(0, 16, lcd.width(), 16, WHITE);
+
+        char *menuItems[] = {"MainScreen", "Setting"};
+
+        for(int i=0; i<2; i++)
+        {
+            if(menuIndex == i)
+            {
+                lcd.fillRect(0, i * 22 + 20, lcd.width(), 16, WHITE);
+                lcd.setTextColor(BLACK, WHITE);
+            }
+            else
+            {
+                lcd.setTextColor(WHITE, BLACK);
+            }
+
+            lcd.setCursor(0, i * 22 + 20);
+            lcd.println(menuItems[i]);
+        }
+
+        lcd.display();
         #endif
         break;
 
@@ -254,7 +341,8 @@ void UltrasonicRun()
     lcd.setTextSize(1);
     #endif
 
-    long duration, distance;
+    float duration = 0;
+    float distance = 0;
 
     digitalWrite(TRIG, LOW);
     delayMicroseconds(2);
@@ -263,27 +351,57 @@ void UltrasonicRun()
     digitalWrite(TRIG, LOW);
 
     duration = pulseIn(ECHO, HIGH);//us
-    Serial.print("Duration : ");
-    Serial.println(duration);
 
-    distance = (34 * duration) / 100 / 2;
+    #ifdef LIQUIDLCD
+    distance = (34 * duration) / 100 / 2;   //mm
+    #else
+    distance = duration * 17 / 1000;    //cm
+    #endif
 
-    Serial.print("DIstance : ");
-    Serial.println(distance);
+    // Serial.print("DIstance : ");
+    // Serial.println(distance);
+
     //초음파속도 340m/s
     //34000cm/s = 340000mm/s
     //1S = 1000ms = 1000000us
     //거리 = 340000 * duration / 1000000 / 2
 
-    String showVlaue = String(distance).substring(0,13);
+    float height = (setData.tankHeight / 10.0) - distance;
+    float r = setData.dataDiameter / 20.0;
+    float volume = (PI * r * r * height) / 10000.0f;
+
+    if(volume < 0) volume = 0;
+
     #ifdef LIQUIDLCD
+    String showVlaue = String(distance).substring(0,13);
     lcd.setCursor(0,0);
     lcd.print(showVlaue);
     #else
+    lcd.setTextSize(2);
     lcd.setCursor((lcd.width() - 6 * 8) / 2, 15);
-    #endif
+    lcd.print(volume, 1);
+    lcd.print(" L");
 
-    delay(200);
+    // Draw progress bar
+    int progressBarWidth = lcd.width() - 4;
+    int progressBarHeight = 12;
+    int progressBarX = 2;
+    int progressBarY = (lcd.height() - progressBarHeight) / 2 + 15;
+
+    lcd.drawRect(progressBarX, progressBarY, progressBarWidth, progressBarHeight, WHITE);
+    int progress = map(volume, 0, setData.target, 0, progressBarWidth);
+
+    if(progress > progressBarWidth)
+    {
+        progress = progressBarWidth;
+    }
+
+    lcd.fillRect(progressBarX, progressBarY, progress, progressBarHeight, WHITE);
+
+    lcd.display();
+
+    delay(100);
+    #endif
 }
 
 #pragma region SerialEvent
